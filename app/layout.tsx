@@ -1,0 +1,126 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Daniel Syauqi and Thaqif Rosdi
+
+import type { Metadata, Viewport } from "next";
+import { Inter, IBM_Plex_Mono } from "next/font/google";
+import { BuildRefreshGuard } from "@/components/app/build-refresh-guard";
+import { Providers } from "@/app/providers";
+import {
+  PREVIEW_DEFAULTS,
+  SYSTEM_DESCRIPTION,
+  brandingUrl,
+  getSystemSettings,
+  safeAccentColor,
+} from "@/lib/system-settings";
+import "./globals.css";
+
+const inter = Inter({
+  variable: "--font-inter",
+  subsets: ["latin"],
+  weight: ["300", "400", "500", "600"],
+  display: "swap",
+});
+
+const plexMono = IBM_Plex_Mono({
+  variable: "--font-plex-mono",
+  subsets: ["latin"],
+  weight: ["400"],
+  display: "swap",
+});
+
+export async function generateMetadata(): Promise<Metadata> {
+  const settings = await getSystemSettings();
+  // An uploaded white-label favicon replaces every icon slot; otherwise use the
+  // stock Seeder set (same as seeder-web): .ico fallback + crisp SVG mark +
+  // PNG apple-touch icon.
+  const brandedFavicon = brandingUrl(settings.faviconKey, settings.updatedAt);
+  const icons = brandedFavicon
+    ? { icon: brandedFavicon, shortcut: brandedFavicon, apple: brandedFavicon }
+    : {
+        icon: [
+          { url: "/favicon.ico", sizes: "any" },
+          { url: "/favicon.svg", type: "image/svg+xml" },
+        ],
+        apple: "/seeder-icon-192.png",
+      };
+  // Link-preview (Open Graph) card: admin overrides, else the seeder-web
+  // defaults. The image is an uploaded 1200×630 card, else the bundled default.
+  const previewTitle = settings.previewTitle || PREVIEW_DEFAULTS.title;
+  const previewDescription =
+    settings.previewDescription || PREVIEW_DEFAULTS.description;
+  const ogImage =
+    brandingUrl(settings.previewImageKey, settings.updatedAt) ??
+    PREVIEW_DEFAULTS.image;
+  const appUrl = process.env.BETTER_AUTH_URL;
+  return {
+    ...(appUrl ? { metadataBase: new URL(appUrl) } : {}),
+    title: {
+      default: settings.webTitle,
+      template: `%s · ${settings.webTitle}`,
+    },
+    description: SYSTEM_DESCRIPTION,
+    applicationName: settings.systemName,
+    icons,
+    appleWebApp: {
+      capable: true,
+      statusBarStyle: "default",
+      title: settings.systemName,
+    },
+    openGraph: {
+      type: "website",
+      siteName: settings.systemName,
+      title: previewTitle,
+      description: previewDescription,
+      images: [{ url: ogImage, width: 1200, height: 630 }],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: previewTitle,
+      description: previewDescription,
+      images: [ogImage],
+    },
+  };
+}
+
+export async function generateViewport(): Promise<Viewport> {
+  const settings = await getSystemSettings();
+  return { themeColor: safeAccentColor(settings.accentColor) };
+}
+
+// Default theme is light: absent a stored preference (or anything other than an
+// explicit 'dark'), set data-theme="light". Runs in <head> before paint, so a
+// dark-preferring user never flashes light and vice-versa.
+const themeBootScript = `(function(){try{var t=localStorage.getItem('seeder-theme');document.documentElement.setAttribute('data-theme',t==='dark'?'dark':'light');var s=localStorage.getItem('seeder-sidebar-collapsed');if(s==='true'){document.documentElement.setAttribute('data-sidebar-collapsed','true');}}catch(e){}})();`;
+
+export default async function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  const settings = await getSystemSettings();
+  // Set the single accent base inline on <html>. Every other accent shade and
+  // the sidebar palette derive from --brand via color-mix in globals.css, so one
+  // validated hex re-tints the whole app in both themes — no FOUC (it's in the
+  // initial HTML) and no hydration mismatch (deterministic server value).
+  const accentStyle = {
+    "--brand": safeAccentColor(settings.accentColor),
+  } as React.CSSProperties;
+
+  return (
+    <html
+      lang="en"
+      data-theme="light"
+      suppressHydrationWarning
+      style={accentStyle}
+      className={`${inter.variable} ${plexMono.variable} h-full antialiased`}
+    >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeBootScript }} />
+      </head>
+      <body className="min-h-full flex flex-col text-foreground">
+        <BuildRefreshGuard />
+        <Providers>{children}</Providers>
+      </body>
+    </html>
+  );
+}
